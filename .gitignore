@@ -1,0 +1,16 @@
+node_modules
+.next
+/build
+out
+
+# env — keep .env.example, ignore real values
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# build artifacts / logs
+*.tsbuildinfo
+*.log
+.DS_Store
