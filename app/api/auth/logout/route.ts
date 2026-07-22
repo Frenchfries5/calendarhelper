@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/session";
+import { destroySession } from "@/lib/session";
 
 export async function POST() {
-  const session = await getSession();
-  session.destroy();
+  await destroySession();
   return NextResponse.json({ ok: true });
 }

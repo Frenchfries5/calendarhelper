@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCca, SCOPES, REDIRECT_URI } from "@/lib/auth";
-import { getSession } from "@/lib/session";
+import { saveSession } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
@@ -13,10 +13,10 @@ export async function GET(request: NextRequest) {
       scopes: SCOPES,
       redirectUri: REDIRECT_URI,
     });
-    const session = await getSession();
-    session.accessToken = result.accessToken;
-    session.account = result.account?.username ?? undefined;
-    await session.save();
+    await saveSession({
+      accessToken: result.accessToken,
+      account: result.account?.username ?? undefined,
+    });
     return NextResponse.redirect(new URL("/", request.url));
   } catch (e) {
     console.error("Token exchange failed", e);
