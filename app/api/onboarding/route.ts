@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { ONBOARDING_TEMPLATE, TIME_ZONE } from "@/lib/template";
+import { TIME_ZONE } from "@/lib/template";
 import { computeSchedule } from "@/lib/dates";
 import { resolveCalendarId, createEvent, GraphError } from "@/lib/graph";
+import { findRole } from "@/lib/roles";
+import { getRolesConfig } from "@/lib/store";
 
 const DEDICATED_CALENDAR_NAME = "US Onboarding Schedule";
 
@@ -12,15 +14,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  const { startDate, useDedicatedCalendar, addTeamsLink, attendees, dryRun, excludedIndexes, overrides } =
+  const { startDate, roleId, useDedicatedCalendar, addTeamsLink, attendees, dryRun, excludedIndexes, overrides } =
     await request.json();
 
   if (!startDate) {
     return NextResponse.json({ error: "A cohort start date is required." }, { status: 400 });
   }
 
+  // Pick the role's session set from the store (falls back to the first role).
+  const config = await getRolesConfig();
+  const role = findRole(config, typeof roleId === "string" ? roleId : undefined);
+  if (!role) {
+    return NextResponse.json({ error: "No role template is configured." }, { status: 400 });
+  }
+
   const attendeeList: string[] = Array.isArray(attendees) ? attendees : [];
-  const schedule = computeSchedule(ONBOARDING_TEMPLATE, startDate);
+  const schedule = computeSchedule(role.sessions, startDate);
 
   // Dry run: return the full computed schedule without touching the calendar.
   // Exclusions are applied client-side for preview; only the create step

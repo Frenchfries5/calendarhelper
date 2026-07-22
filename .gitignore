@@ -10,6 +10,9 @@ out
 # vercel
 .vercel
 
+# local dev store (role templates) — prod uses Vercel KV
+.data
+
 # build artifacts / logs
 *.tsbuildinfo
 *.log

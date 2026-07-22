@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import TemplateEditor, { RoleTemplate } from "./TemplateEditor";
 
 interface ComputedEvent {
   title: string;
@@ -91,6 +92,32 @@ export default function OnboardingForm({
   const [created, setCreated] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Role templates (loaded from the store) + which one is selected.
+  const [roles, setRoles] = useState<RoleTemplate[]>([]);
+  const [roleId, setRoleId] = useState<string>("");
+  const [storeMode, setStoreMode] = useState<string>("");
+  const [managing, setManaging] = useState(false);
+
+  async function loadRoles() {
+    try {
+      const res = await fetch("/api/templates");
+      if (!res.ok) return;
+      const data = await res.json();
+      const loaded: RoleTemplate[] = data.roles ?? [];
+      setRoles(loaded);
+      setStoreMode(data.storeMode ?? "");
+      setRoleId((cur) => (cur && loaded.some((r) => r.id === cur) ? cur : loaded[0]?.id ?? ""));
+    } catch {
+      // Non-fatal — scheduling still works off the server's default role.
+    }
+  }
+  useEffect(() => {
+    loadRoles();
+  }, []);
+
+  const selectedRole = roles.find((r) => r.id === roleId);
+  const roleSessionCount = selectedRole ? selectedRole.sessions.length : sessionCount;
 
   const attendees = attendeesRaw
     .split(/[\s,;]+/)
@@ -202,6 +229,7 @@ export default function OnboardingForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           startDate,
+          roleId,
           useDedicatedCalendar,
           addTeamsLink,
           attendees,
@@ -301,6 +329,31 @@ export default function OnboardingForm({
     );
   }
 
+  if (managing) {
+    return (
+      <div className="layout">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">People Ops</p>
+            <h1>Role templates</h1>
+          </div>
+          <div className="account">
+            <span>{account}</span>
+            <button className="btn ghost" onClick={signOut}>
+              Sign out
+            </button>
+          </div>
+        </header>
+        <TemplateEditor
+          initialRoles={roles}
+          storeMode={storeMode}
+          onClose={() => setManaging(false)}
+          onSaved={loadRoles}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="layout">
       <header className="topbar">
@@ -318,6 +371,32 @@ export default function OnboardingForm({
 
       <div className={`grid ${preview && viewMode === "calendar" ? "grid--wide" : ""}`}>
         <section className="card controls">
+          <label className="field">
+            <span>Role</span>
+            <select
+              value={roleId}
+              onChange={(e) => {
+                setRoleId(e.target.value);
+                setPreview(null);
+                setCreated(null);
+                setExcluded(new Set());
+              }}
+            >
+              {roles.length === 0 && <option value="">(loading…)</option>}
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} ({r.sessions.length})
+                </option>
+              ))}
+            </select>
+            <small>
+              Each role has its own session set.{" "}
+              <button type="button" className="linkbtn" onClick={() => setManaging(true)}>
+                Manage templates
+              </button>
+            </small>
+          </label>
+
           <label className="field">
             <span>Cohort start date</span>
             <input
@@ -367,7 +446,7 @@ export default function OnboardingForm({
               onClick={() => run(false)}
               title={!preview ? "Preview first" : undefined}
             >
-              Create {preview ? preview.length - excluded.size : sessionCount} events
+              Create {preview ? preview.length - excluded.size : roleSessionCount} events
             </button>
           </div>
 

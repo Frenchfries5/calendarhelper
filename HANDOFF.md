@@ -74,9 +74,25 @@ Variables (production). Values come from Section 3.
 | `AZURE_CLIENT_SECRET` | Client secret **Value** |
 | `AZURE_REDIRECT_URI` | `http://localhost:3000/api/auth/callback` locally; the Vercel URL in prod |
 | `SESSION_SECRET` | 32+ char random string. Generate: `openssl rand -base64 32` |
+| `KV_REST_API_URL` | *(templates saving)* set automatically when you add a Vercel KV store — see below |
+| `KV_REST_API_TOKEN` | *(templates saving)* set automatically with the KV store |
 
 The client secret and session secret are server-only — never prefixed
 `NEXT_PUBLIC_`, never referenced in client components.
+
+### Role templates storage (Vercel KV)
+
+The onboarding session sets are **per role** and edited in-app ("Manage
+templates"). Saving those edits needs a writable store:
+
+- **Locally**, no setup needed — edits are written to `.data/role-templates.json`.
+- **On Vercel**, the filesystem is read-only, so add a KV store: Vercel
+  dashboard → **Storage → Create → KV**, and connect it to this project.
+  Vercel then injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically;
+  redeploy so they take effect.
+- Until KV is added, production still works read-only: everyone gets the
+  seeded role template, and the editor shows a "saving disabled" notice. Add
+  KV whenever you want to create/edit roles in prod.
 
 ---
 
@@ -136,6 +152,7 @@ long-lived credential.
 
 - Duplicate guard: before creating, query existing events in the window and skip
   matching subjects, so a re-run doesn't double-book.
-- Multiple templates (e.g. Tech vs. Partnerships tracks) selectable in the UI.
 - A confirmation step showing the target calendar name before create.
 - Per-session attendee overrides instead of one global list.
+
+(Done: multiple role templates selectable + editable in-app — see §4 storage.)

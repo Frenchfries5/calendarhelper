@@ -8,9 +8,12 @@ step-by-step "definition of done".
 A small internal People Ops tool for Coverdash. It creates a full new-hire
 onboarding week (multiple sessions with set titles, descriptions, locations,
 times) on the operator's Outlook calendar via Microsoft Graph. The operator
-signs in with Microsoft, picks a cohort start date, previews the schedule (as
-a list or a week calendar), optionally excludes individual sessions, and
-creates the events with one click. Human-triggered, ~once a month.
+signs in with Microsoft, picks a **role** (each role has its own session set),
+a cohort start date, previews the schedule (list or week calendar), optionally
+excludes or drag-reschedules individual sessions, and creates the events with
+one click. All roles use the same calendar ("US Onboarding Schedule").
+Role templates are edited in-app ("Manage templates") and saved to a store.
+Human-triggered, ~once a month.
 
 ## Architecture (already decided — do not re-litigate)
 
@@ -31,20 +34,43 @@ creates the events with one click. Human-triggered, ~once a month.
 app/
   layout.tsx, page.tsx (server; reads session), globals.css
   api/auth/login|callback|logout/route.ts
-  api/onboarding/route.ts        # compute schedule; dry-run or create events
-components/OnboardingForm.tsx     # client UI: form + list/calendar preview
+  api/onboarding/route.ts        # compute schedule for a role; dry-run or create
+  api/templates/route.ts         # GET/PUT role templates (the editable defaults)
+components/
+  OnboardingForm.tsx   # scheduler: role picker + form + list/calendar preview
+  TemplateEditor.tsx   # in-app editor for role templates
 lib/
-  template.ts   # THE onboarding session template — the thing Chris edits
+  template.ts   # OnboardingSession type, TIME_ZONE, and the SEED session set
+  roles.ts      # RoleTemplate type, SEED_ROLES, validation
+  store.ts      # persistence: Vercel KV -> local file (dev) -> read-only seed
   dates.ts      # business-day math + schedule computation
   auth.ts       # MSAL confidential client
-  session.ts    # iron-session config
+  session.ts    # iron-session (chunked cookies)
   graph.ts      # Graph client (resolve calendar, create event)
 ```
 
+## Role templates & storage
+
+- Templates are **role → session set**. Editable in-app via `TemplateEditor`
+  ("Manage templates"); the scheduler's role dropdown drives which set is
+  used. All roles share one calendar (`DEDICATED_CALENDAR_NAME` in the
+  onboarding route) — only sessions differ.
+- `lib/store.ts` persists them in three auto-selected tiers:
+  1. **Vercel KV** when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set (prod;
+     accessed via Upstash REST with plain `fetch`, no npm dep).
+  2. **Local JSON file** `.data/role-templates.json` in local dev (the Vercel
+     FS is read-only, so this is dev-only; gitignored).
+  3. **Read-only seed** (`SEED_ROLES` in `lib/roles.ts`) when neither exists —
+     scheduling still works; saving reports "no writable store".
+- The onboarding create path is authoritative: it loads the role's sessions
+  from the store server-side (never trusts a client-sent session list); the
+  client only sends `roleId` plus timing overrides/exclusions.
+
 ## Conventions
 
-- Keep the session template (`lib/template.ts`) the single source of truth for
-  what gets scheduled. All titles/descriptions/locations/timing live there.
+- The saved store is the source of truth for what gets scheduled;
+  `lib/template.ts` / `SEED_ROLES` is only the first-run seed. Don't hardcode
+  new session content in components — it flows through roles/store.
 - Times are wall-clock strings paired with `timeZone: "Eastern Standard Time"`;
   do not convert to UTC. `lib/dates.ts` explains why.
 - Dry-run (preview) must never write to the calendar. Excluded sessions are
