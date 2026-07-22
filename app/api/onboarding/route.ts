@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  const { startDate, useDedicatedCalendar, addTeamsLink, attendees, dryRun, excludedIndexes } =
+  const { startDate, useDedicatedCalendar, addTeamsLink, attendees, dryRun, excludedIndexes, overrides } =
     await request.json();
 
   if (!startDate) {
@@ -27,6 +27,24 @@ export async function POST(request: NextRequest) {
   // below needs to actually drop excluded sessions.
   if (dryRun) {
     return NextResponse.json({ dryRun: true, events: schedule });
+  }
+
+  // Apply per-event timing overrides (from drag-to-reschedule in the preview)
+  // so what gets created matches exactly what the operator arranged. Title,
+  // body, and location always come from the template — only timing moves.
+  if (Array.isArray(overrides)) {
+    for (const o of overrides) {
+      const i = o?.index;
+      if (typeof i === "number" && schedule[i] && o.startDateTime && o.endDateTime) {
+        schedule[i] = {
+          ...schedule[i],
+          startDateTime: o.startDateTime,
+          endDateTime: o.endDateTime,
+          startTime: typeof o.startTime === "string" ? o.startTime : schedule[i].startTime,
+          dateLabel: typeof o.dateLabel === "string" ? o.dateLabel : schedule[i].dateLabel,
+        };
+      }
+    }
   }
 
   const excluded = new Set<number>(Array.isArray(excludedIndexes) ? excludedIndexes : []);

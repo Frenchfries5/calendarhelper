@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 interface ComputedEvent {
   title: string;
@@ -9,6 +9,24 @@ interface ComputedEvent {
   dateLabel: string;
   startTime: string;
   endTime: string;
+  startDateTime: string; // "YYYY-MM-DDTHH:mm:ss" — Eastern wall-clock
+  endDateTime: string;
+}
+
+function minutesToTime(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// Re-label a date (from a "YYYY-MM-DD" string) the same way the server does.
+function labelForDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function toMinutes(time: string): number {
@@ -88,6 +106,89 @@ export default function OnboardingForm({
     });
   }
 
+  // --- Calendar drag-to-reschedule -----------------------------------------
+  // Pointer-based: a small move is treated as a click (toggle exclude); a
+  // larger move drags the event to a new time (snapped to 15 min) and/or day
+  // column. Nothing is written until "Create" — this only edits the preview.
+  const dragRef = useRef<{ index: number; startX: number; startY: number; moved: boolean } | null>(
+    null,
+  );
+  const [dragVisual, setDragVisual] = useState<{ index: number; dx: number; dy: number } | null>(
+    null,
+  );
+  const dayBodyRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  function commitDrag(index: number, clientX: number, dy: number) {
+    setPreview((prev) => {
+      if (!prev) return prev;
+      const ev = prev[index];
+      const duration = toMinutes(ev.endTime) - toMinutes(ev.startTime);
+      const deltaMin = Math.round(dy / CAL_PX_PER_MIN / 15) * 15;
+      let startMin = toMinutes(ev.startTime) + deltaMin;
+      startMin = Math.round(startMin / 15) * 15;
+      startMin = Math.max(dayColumns.dayStart, Math.min(startMin, dayColumns.dayEnd - duration));
+
+      // Which day column is the pointer over? Clamp to the nearest.
+      let date = ev.startDateTime.slice(0, 10);
+      const rects = dayBodyRefs.current
+        .map((el, ci) => (el ? { ci, rect: el.getBoundingClientRect() } : null))
+        .filter((r): r is { ci: number; rect: DOMRect } => r !== null);
+      if (rects.length) {
+        let chosen = rects[0];
+        for (const r of rects) {
+          if (clientX >= r.rect.left && clientX <= r.rect.right) {
+            chosen = r;
+            break;
+          }
+          if (clientX > r.rect.right) chosen = r;
+        }
+        date = dayColumns.columns[chosen.ci]?.date ?? date;
+      }
+
+      const startT = minutesToTime(startMin);
+      const endT = minutesToTime(startMin + duration);
+      const next = [...prev];
+      next[index] = {
+        ...ev,
+        startTime: startT,
+        endTime: endT,
+        dateLabel: labelForDate(date),
+        startDateTime: `${date}T${startT}:00`,
+        endDateTime: `${date}T${endT}:00`,
+      };
+      return next;
+    });
+  }
+
+  function onEventPointerDown(e: React.PointerEvent, index: number) {
+    if (e.button !== 0) return;
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // setPointerCapture can throw for an inactive pointer id; drag still works.
+    }
+    dragRef.current = { index, startX: e.clientX, startY: e.clientY, moved: false };
+  }
+  function onEventPointerMove(e: React.PointerEvent, index: number) {
+    const d = dragRef.current;
+    if (!d || d.index !== index) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (!d.moved && Math.hypot(dx, dy) > 5) d.moved = true;
+    if (d.moved) setDragVisual({ index, dx, dy });
+  }
+  function onEventPointerUp(e: React.PointerEvent, index: number) {
+    const d = dragRef.current;
+    dragRef.current = null;
+    setDragVisual(null);
+    if (!d || d.index !== index) return;
+    if (!d.moved) {
+      toggleExcluded(index);
+      return;
+    }
+    commitDrag(index, e.clientX, e.clientY - d.startY);
+  }
+
   async function run(dryRun: boolean) {
     setError(null);
     if (!startDate) {
@@ -106,6 +207,18 @@ export default function OnboardingForm({
           attendees,
           dryRun,
           excludedIndexes: dryRun ? undefined : Array.from(excluded),
+          // Send the current (possibly drag-adjusted) timing so what gets
+          // created matches exactly what's shown in the preview.
+          overrides:
+            dryRun || !preview
+              ? undefined
+              : preview.map((ev, index) => ({
+                  index,
+                  startDateTime: ev.startDateTime,
+                  endDateTime: ev.endDateTime,
+                  startTime: ev.startTime,
+                  dateLabel: ev.dateLabel,
+                })),
         }),
       });
       const data = await res.json();
@@ -130,13 +243,16 @@ export default function OnboardingForm({
 
   const dayColumns = useMemo(() => {
     if (!preview || preview.length === 0) {
-      return { columns: [], dayStart: 0, span: 60, hours: [] as number[] };
+      return { columns: [], dayStart: 0, dayEnd: 60, span: 60, hours: [] as number[] };
     }
-    const byDay = new Map<string, { ev: ComputedEvent; index: number }[]>();
+    // Group by calendar date (YYYY-MM-DD from startDateTime) so a dragged
+    // event lands in the right day column and we can recover the date.
+    const byDate = new Map<string, { ev: ComputedEvent; index: number }[]>();
     preview.forEach((ev, index) => {
-      const list = byDay.get(ev.dateLabel) ?? [];
+      const date = ev.startDateTime.slice(0, 10);
+      const list = byDate.get(date) ?? [];
       list.push({ ev, index });
-      byDay.set(ev.dateLabel, list);
+      byDate.set(date, list);
     });
 
     const allMinutes = preview.flatMap((ev) => [toMinutes(ev.startTime), toMinutes(ev.endTime)]);
@@ -146,19 +262,22 @@ export default function OnboardingForm({
     const hours: number[] = [];
     for (let h = dayStart; h <= dayEnd; h += 60) hours.push(h);
 
-    const columns = Array.from(byDay.entries()).map(([day, items]) => {
-      const lanes = assignLanes(items.map((it) => it.ev));
-      return {
-        day,
-        items: items.map((it, i) => ({
-          ...it,
-          lane: lanes[i].lane,
-          laneCount: lanes[i].laneCount,
-        })),
-      };
-    });
+    const columns = Array.from(byDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, items]) => {
+        const lanes = assignLanes(items.map((it) => it.ev));
+        return {
+          date,
+          day: labelForDate(date),
+          items: items.map((it, i) => ({
+            ...it,
+            lane: lanes[i].lane,
+            laneCount: lanes[i].laneCount,
+          })),
+        };
+      });
 
-    return { columns, dayStart, span, hours };
+    return { columns, dayStart, dayEnd, span, hours };
   }, [preview]);
 
   async function signOut() {
@@ -197,7 +316,7 @@ export default function OnboardingForm({
         </div>
       </header>
 
-      <div className="grid">
+      <div className={`grid ${preview && viewMode === "calendar" ? "grid--wide" : ""}`}>
         <section className="card controls">
           <label className="field">
             <span>Cohort start date</span>
@@ -300,7 +419,11 @@ export default function OnboardingForm({
                   </button>
                 </div>
               </div>
-              <p className="muted hint">Click a session to leave it off the calendar.</p>
+              <p className="muted hint">
+                {viewMode === "calendar"
+                  ? "Click a session to exclude it, or drag it to a new time or day. Nothing is saved until you create."
+                  : "Click a session to leave it off the calendar."}
+              </p>
 
               {viewMode === "list" && (
                 <ol className="timeline">
@@ -353,11 +476,14 @@ export default function OnboardingForm({
                     </div>
                   </div>
                   <div className="cal-days">
-                    {dayColumns.columns.map((col) => (
-                      <div className="cal-day" key={col.day}>
+                    {dayColumns.columns.map((col, ci) => (
+                      <div className="cal-day" key={col.date}>
                         <div className="cal-day-header">{col.day}</div>
                         <div
                           className="cal-day-body"
+                          ref={(el) => {
+                            dayBodyRefs.current[ci] = el;
+                          }}
                           style={{ height: `${dayColumns.span * CAL_PX_PER_MIN}px` }}
                         >
                           {dayColumns.hours.map((h) => (
@@ -374,18 +500,24 @@ export default function OnboardingForm({
                               (toMinutes(ev.endTime) - toMinutes(ev.startTime)) * CAL_PX_PER_MIN - 2,
                             );
                             const width = 100 / laneCount;
+                            const dragging = dragVisual?.index === index;
                             return (
                               <button
                                 key={index}
-                                className={`cal-event ${excluded.has(index) ? "excluded" : ""}`}
+                                className={`cal-event ${excluded.has(index) ? "excluded" : ""} ${dragging ? "dragging" : ""}`}
                                 style={{
                                   top: `${top}px`,
                                   height: `${height}px`,
                                   left: `${lane * width}%`,
                                   width: `calc(${width}% - 4px)`,
+                                  transform: dragging
+                                    ? `translate(${dragVisual!.dx}px, ${dragVisual!.dy}px)`
+                                    : undefined,
                                 }}
-                                onClick={() => toggleExcluded(index)}
-                                title={`${ev.title} — ${formatClock(ev.startTime)}–${formatClock(ev.endTime)}`}
+                                onPointerDown={(e) => onEventPointerDown(e, index)}
+                                onPointerMove={(e) => onEventPointerMove(e, index)}
+                                onPointerUp={(e) => onEventPointerUp(e, index)}
+                                title={`${ev.title} — ${formatClock(ev.startTime)}–${formatClock(ev.endTime)} · drag to move, click to exclude`}
                               >
                                 <span className="cal-event-title">{ev.title}</span>
                                 <span className="cal-event-time">

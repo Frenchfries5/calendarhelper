@@ -29,7 +29,7 @@ body {
 }
 
 .shell {
-  max-width: 960px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 48px 24px 80px;
 }
@@ -92,6 +92,13 @@ h2 {
   grid-template-columns: 340px 1fr;
   gap: 20px;
   align-items: start;
+}
+/* In calendar view, stack so the calendar can use the full page width. */
+.grid--wide {
+  grid-template-columns: 1fr;
+}
+.grid--wide .controls {
+  max-width: 560px;
 }
 
 /* Controls */
@@ -370,7 +377,9 @@ textarea:focus {
   background: var(--accent-soft);
   border-radius: 5px;
   padding: 4px 7px;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -378,6 +387,12 @@ textarea:focus {
 }
 .cal-event:hover {
   border-color: var(--ink);
+}
+.cal-event.dragging {
+  cursor: grabbing;
+  z-index: 10;
+  box-shadow: 0 6px 16px -6px rgba(16, 24, 40, 0.5);
+  opacity: 0.95;
 }
 .cal-event.excluded {
   opacity: 0.4;
