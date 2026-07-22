@@ -72,7 +72,7 @@ export default function TemplateEditor({
               ...r,
               sessions: [
                 ...r.sessions,
-                { title: "New session", dayOffset: 0, startTime: "09:00", duration: 30, location: "Teams", body: "" },
+                { title: "New session", dayOffset: 0, startTime: "09:00", duration: 30, location: "", body: "" },
               ],
             }
           : r,

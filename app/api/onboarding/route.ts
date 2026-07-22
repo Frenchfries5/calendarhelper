@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not signed in." }, { status: 401 });
   }
 
-  const { startDate, roleId, useDedicatedCalendar, addTeamsLink, attendees, dryRun, excludedIndexes, overrides } =
+  const { startDate, roleId, useDedicatedCalendar, attendees, dryRun, excludedIndexes, overrides } =
     await request.json();
 
   if (!startDate) {
@@ -75,7 +75,6 @@ export async function POST(request: NextRequest) {
         endDateTime: ev.endDateTime,
         timeZone: TIME_ZONE,
         attendees: attendeeList,
-        addTeamsLink: Boolean(addTeamsLink),
       });
       created.push(`${ev.title} — ${ev.dateLabel} ${ev.startTime}`);
     }

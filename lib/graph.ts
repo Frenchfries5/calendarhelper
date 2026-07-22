@@ -49,7 +49,6 @@ export interface CreateEventInput {
   endDateTime: string;
   timeZone: string;
   attendees?: string[];
-  addTeamsLink?: boolean;
 }
 
 export async function createEvent(
@@ -69,10 +68,6 @@ export async function createEvent(
       emailAddress: { address: a },
       type: "required",
     }));
-  }
-  if (e.addTeamsLink) {
-    event.isOnlineMeeting = true;
-    event.onlineMeetingProvider = "teamsForBusiness";
   }
   const path = calendarId ? `/me/calendars/${calendarId}/events` : "/me/events";
   return graph(token, path, "POST", event);

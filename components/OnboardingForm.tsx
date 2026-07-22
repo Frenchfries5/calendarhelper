@@ -84,7 +84,6 @@ export default function OnboardingForm({
 }) {
   const [startDate, setStartDate] = useState("");
   const [useDedicatedCalendar, setDedicated] = useState(true);
-  const [addTeamsLink, setTeams] = useState(true);
   const [attendeesRaw, setAttendeesRaw] = useState("");
   const [preview, setPreview] = useState<ComputedEvent[] | null>(null);
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
@@ -231,7 +230,6 @@ export default function OnboardingForm({
           startDate,
           roleId,
           useDedicatedCalendar,
-          addTeamsLink,
           attendees,
           dryRun,
           excludedIndexes: dryRun ? undefined : Array.from(excluded),
@@ -414,15 +412,6 @@ export default function OnboardingForm({
               onChange={(e) => setDedicated(e.target.checked)}
             />
             <span>Use a dedicated "US Onboarding Schedule" calendar</span>
-          </label>
-
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={addTeamsLink}
-              onChange={(e) => setTeams(e.target.checked)}
-            />
-            <span>Add a Teams link to each session</span>
           </label>
 
           <label className="field">
