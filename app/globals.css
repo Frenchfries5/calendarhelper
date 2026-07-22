@@ -530,6 +530,19 @@ textarea:focus {
   margin-bottom: 16px;
   border-bottom: 1px solid var(--line);
 }
+.session-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--line);
+}
+.session-toolbar .small {
+  flex: 1;
+  min-width: 160px;
+}
 .session-editors {
   display: grid;
   gap: 14px;

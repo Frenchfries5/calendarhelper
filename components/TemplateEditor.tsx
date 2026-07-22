@@ -1,6 +1,116 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+const CSV_HEADERS = ["title", "dayOffset", "startTime", "duration", "location", "body"] as const;
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+function toCsv(sessions: Session[]): string {
+  const lines = [CSV_HEADERS.join(",")];
+  for (const s of sessions) {
+    lines.push(
+      [
+        csvEscape(s.title),
+        String(s.dayOffset),
+        csvEscape(s.startTime),
+        String(s.duration),
+        csvEscape(s.location),
+        csvEscape(s.body),
+      ].join(","),
+    );
+  }
+  return lines.join("\r\n");
+}
+
+// RFC4180-ish parser: handles quoted fields, escaped quotes (""), and
+// newlines inside quotes (e.g. multi-line body).
+function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const t = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (t[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+// Maps parsed CSV rows to sessions. Header row drives column order; accepts a
+// few friendly aliases. Returns valid sessions plus the count skipped.
+function sessionsFromCsv(text: string): { sessions: Session[]; skipped: number } {
+  const rows = parseCsvRows(text).filter((r) => r.some((c) => c.trim() !== ""));
+  if (rows.length === 0) return { sessions: [], skipped: 0 };
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (names: string[]) => header.findIndex((h) => names.includes(h));
+  const idx = {
+    title: col(["title"]),
+    dayOffset: col(["dayoffset", "day", "day offset"]),
+    startTime: col(["starttime", "start", "start time"]),
+    duration: col(["duration", "minutes", "mins"]),
+    location: col(["location"]),
+    body: col(["body", "description", "desc"]),
+  };
+  const sessions: Session[] = [];
+  let skipped = 0;
+  for (const r of rows.slice(1)) {
+    const get = (i: number) => (i >= 0 && i < r.length ? r[i].trim() : "");
+    const title = get(idx.title);
+    const startTime = get(idx.startTime);
+    const dayOffset = Number(get(idx.dayOffset));
+    const duration = Number(get(idx.duration));
+    if (!title || !/^\d{1,2}:\d{2}$/.test(startTime) || !Number.isFinite(dayOffset) || !(duration > 0)) {
+      skipped++;
+      continue;
+    }
+    sessions.push({
+      title,
+      dayOffset: Math.max(0, Math.trunc(dayOffset)),
+      startTime,
+      duration,
+      location: get(idx.location),
+      body: get(idx.body),
+    });
+  }
+  return { sessions, skipped };
+}
+
+function downloadCsv(filename: string, text: string): void {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export interface Session {
   title: string;
@@ -49,6 +159,7 @@ export default function TemplateEditor({
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selected = roles.find((r) => r.id === selectedId) ?? roles[0];
 
@@ -103,6 +214,29 @@ export default function TemplateEditor({
       if (id === selectedId) setSelectedId(next[0].id);
       return next;
     });
+  }
+
+  function exportCsv() {
+    if (!selected) return;
+    downloadCsv(`${selected.id}-sessions.csv`, toCsv(selected.sessions));
+  }
+  async function importCsv(file: File) {
+    setError(null);
+    setStatus(null);
+    try {
+      const text = await file.text();
+      const { sessions, skipped } = sessionsFromCsv(text);
+      if (sessions.length === 0) {
+        setError("No valid rows found. Expected columns: title, dayOffset, startTime (HH:MM), duration, location, body.");
+        return;
+      }
+      updateRole(selected.id, { sessions });
+      setStatus(
+        `Imported ${sessions.length} session(s) into "${selected.name}"${skipped ? `, skipped ${skipped} invalid row(s)` : ""}. Review, then Save.`,
+      );
+    } catch {
+      setError("Could not read that file.");
+    }
   }
 
   async function save() {
@@ -208,9 +342,33 @@ export default function TemplateEditor({
                 </button>
               </div>
 
+              <div className="session-toolbar">
+                <button className="btn small" onClick={exportCsv}>
+                  Download CSV
+                </button>
+                <button className="btn small" onClick={() => fileInputRef.current?.click()}>
+                  Upload CSV
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) importCsv(f);
+                    e.target.value = ""; // allow re-uploading the same file
+                  }}
+                />
+                <span className="muted small">
+                  Download the current sessions as a CSV to use as a template, edit it, and upload to
+                  replace this role&rsquo;s sessions.
+                </span>
+              </div>
+
               <div className="session-editors">
                 {selected.sessions.length === 0 && (
-                  <p className="muted small">No sessions yet — add one below.</p>
+                  <p className="muted small">No sessions yet — add one below or upload a CSV.</p>
                 )}
                 {selected.sessions.map((s, i) => (
                   <div className="session-editor" key={i}>

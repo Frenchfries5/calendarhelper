@@ -55,6 +55,11 @@ lib/
   ("Manage templates"); the scheduler's role dropdown drives which set is
   used. All roles share one calendar (`DEDICATED_CALENDAR_NAME` in the
   onboarding route) — only sessions differ.
+- `TemplateEditor` also does **CSV import/export** (client-side): Download CSV
+  emits the selected role's sessions (headers: title, dayOffset, startTime,
+  duration, location, body); Upload CSV parses/validates rows (RFC4180-ish,
+  handles quoted commas/newlines) and replaces that role's sessions in the
+  editor. Saving still goes through PUT /api/templates.
 - `lib/store.ts` persists them in three auto-selected tiers:
   1. **Vercel KV** when `KV_REST_API_URL` + `KV_REST_API_TOKEN` are set (prod;
      accessed via Upstash REST with plain `fetch`, no npm dep).
