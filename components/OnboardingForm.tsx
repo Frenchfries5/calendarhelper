@@ -16,6 +16,18 @@ function toMinutes(time: string): number {
   return h * 60 + m;
 }
 
+// All template times are Eastern wall-clock (see lib/template.ts). Display
+// them as 12-hour AM/PM.
+function formatClock(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${hh} ${period}` : `${hh}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// Vertical scale for the calendar grid — pixels per minute. Higher = roomier.
+const CAL_PX_PER_MIN = 1.5;
+
 // Greedy interval partitioning: reuse a lane as soon as it frees up, so
 // side-by-side width only narrows for events that actually overlap in time.
 function assignLanes(events: { startTime: string; endTime: string }[]): {
@@ -309,7 +321,7 @@ export default function OnboardingForm({
                       <div className="when">
                         <span className="day">{ev.dateLabel}</span>
                         <span className="time">
-                          {ev.startTime}–{ev.endTime}
+                          {formatClock(ev.startTime)}–{formatClock(ev.endTime)}
                         </span>
                       </div>
                       <div className="what">
@@ -323,55 +335,69 @@ export default function OnboardingForm({
 
               {viewMode === "calendar" && (
                 <div className="calendar">
-                  {dayColumns.columns.map((col) => (
-                    <div className="cal-day" key={col.day}>
-                      <div className="cal-day-header">{col.day}</div>
-                      <div
-                        className="cal-day-body"
-                        style={{ height: `${dayColumns.span}px` }}
-                      >
-                        {dayColumns.hours.map((h) => (
-                          <div
-                            key={h}
-                            className="cal-hour-line"
-                            style={{ top: `${h - dayColumns.dayStart}px` }}
-                          >
-                            <span>
-                              {String(Math.floor(h / 60) % 24).padStart(2, "0")}:
-                              {String(h % 60).padStart(2, "0")}
-                            </span>
-                          </div>
-                        ))}
-                        {col.items.map(({ ev, index, lane, laneCount }) => {
-                          const top = toMinutes(ev.startTime) - dayColumns.dayStart;
-                          const height = Math.max(
-                            18,
-                            toMinutes(ev.endTime) - toMinutes(ev.startTime),
-                          );
-                          const width = 100 / laneCount;
-                          return (
-                            <button
-                              key={index}
-                              className={`cal-event ${excluded.has(index) ? "excluded" : ""}`}
-                              style={{
-                                top: `${top}px`,
-                                height: `${height}px`,
-                                left: `${lane * width}%`,
-                                width: `calc(${width}% - 4px)`,
-                              }}
-                              onClick={() => toggleExcluded(index)}
-                              title={`${ev.title} — ${ev.startTime}–${ev.endTime}`}
-                            >
-                              <span className="cal-event-title">{ev.title}</span>
-                              <span className="cal-event-time">
-                                {ev.startTime}–{ev.endTime}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                  <div className="cal-gutter">
+                    <div className="cal-day-header" />
+                    <div
+                      className="cal-gutter-body"
+                      style={{ height: `${dayColumns.span * CAL_PX_PER_MIN}px` }}
+                    >
+                      {dayColumns.hours.map((h) => (
+                        <span
+                          key={h}
+                          className="cal-gutter-label"
+                          style={{ top: `${(h - dayColumns.dayStart) * CAL_PX_PER_MIN}px` }}
+                        >
+                          {formatClock(`${String(Math.floor(h / 60)).padStart(2, "0")}:00`)}
+                        </span>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                  <div className="cal-days">
+                    {dayColumns.columns.map((col) => (
+                      <div className="cal-day" key={col.day}>
+                        <div className="cal-day-header">{col.day}</div>
+                        <div
+                          className="cal-day-body"
+                          style={{ height: `${dayColumns.span * CAL_PX_PER_MIN}px` }}
+                        >
+                          {dayColumns.hours.map((h) => (
+                            <div
+                              key={h}
+                              className="cal-hour-line"
+                              style={{ top: `${(h - dayColumns.dayStart) * CAL_PX_PER_MIN}px` }}
+                            />
+                          ))}
+                          {col.items.map(({ ev, index, lane, laneCount }) => {
+                            const top = (toMinutes(ev.startTime) - dayColumns.dayStart) * CAL_PX_PER_MIN;
+                            const height = Math.max(
+                              28,
+                              (toMinutes(ev.endTime) - toMinutes(ev.startTime)) * CAL_PX_PER_MIN - 2,
+                            );
+                            const width = 100 / laneCount;
+                            return (
+                              <button
+                                key={index}
+                                className={`cal-event ${excluded.has(index) ? "excluded" : ""}`}
+                                style={{
+                                  top: `${top}px`,
+                                  height: `${height}px`,
+                                  left: `${lane * width}%`,
+                                  width: `calc(${width}% - 4px)`,
+                                }}
+                                onClick={() => toggleExcluded(index)}
+                                title={`${ev.title} — ${formatClock(ev.startTime)}–${formatClock(ev.endTime)}`}
+                              >
+                                <span className="cal-event-title">{ev.title}</span>
+                                <span className="cal-event-time">
+                                  {formatClock(ev.startTime)}–{formatClock(ev.endTime)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
